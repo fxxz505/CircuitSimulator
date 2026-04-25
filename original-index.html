@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circuit Simulator - 数字电路仿真</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        body { font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #1e1e1e; color: #e0e0e0; }
+        
+        .toolbar {
+            height: 50px;
+            background: #2d2d2d;
+            border-bottom: 1px solid #404040;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            gap: 5px;
+        }
+        
+        .btn {
+            background: #3d3d3d;
+            border: 1px solid #505050;
+            color: #e0e0e0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        
+        .btn:hover { background: #4d4d4d; }
+        .btn-primary { background: #0078d4; border-color: #008cf0; }
+        .btn-primary:hover { background: #008cf0; }
+        .btn-icon { padding: 8px; width: 36px; height: 36px; font-size: 16px; }
+        
+        .main-container { display: flex; height: calc(100vh - 50px); }
+        
+        .left-panel {
+            width: 220px;
+            background: #252526;
+            border-right: 1px solid #404040;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        
+        .panel-header {
+            padding: 12px 15px;
+            background: #2d2d2d;
+            font-weight: 600;
+            font-size: 14px;
+            border-bottom: 1px solid #404040;
+        }
+        
+        .component-item {
+            padding: 10px 12px;
+            background: #2d2d2d;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            margin: 5px;
+            cursor: grab;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .component-item:hover { background: #3d3d3d; border-color: #0078d4; }
+        .component-icon {
+            width: 32px;
+            height: 32px;
+            background: #404040;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .canvas-container { flex: 1; position: relative; overflow: hidden; background: #1e1e1e; }
+        #mainCanvas { display: block; cursor: crosshair; }
+        
+        .status-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 28px;
+            background: #0078d4;
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            font-size: 12px;
+            gap: 20px;
+        }
+        
+        .category-title {
+            padding: 10px 15px;
+            font-size: 12px;
+            color: #888;
+            cursor: pointer;
+            background: #2a2a2a;
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 500px;
+            width: 90%;
+        }
+        
+        .modal-header { font-size: 18px; font-weight: 600; margin-bottom: 15px; }
+        .modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+        
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #1e1e1e; }
+        ::-webkit-scrollbar-thumb { background: #404040; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <div style="display: flex; gap: 5px; padding: 0 10px; border-right: 1px solid #404040;">
+            <button class="btn btn-icon" onclick="newCircuit()" title="新建">📄</button>
+            <button class="btn btn-icon" onclick="saveCircuit()" title="保存">💾</button>
+            <button class="btn btn-icon" onclick="undo()" title="撤销">↶</button>
+            <button class="btn btn-icon" onclick="redo()" title="重做">↷</button>
+        </div>
+        <div style="display: flex; gap: 5px; padding: 0 10px; border-right: 1px solid #404040;">
+            <button class="btn btn-icon" id="playBtn" onclick="toggleSimulation()" title="播放/暂停">▶</button>
+            <button class="btn btn-icon" onclick="stepSimulation()" title="单步">⏭</button>
+            <button class="btn btn-icon" onclick="resetSimulation()" title="重置">⏮</button>
+        </div>
+        <div style="display: flex; gap: 5px; padding: 0 10px; border-right: 1px solid #404040;">
+            <button class="btn btn-icon" onclick="zoomIn()">➕</button>
+            <button class="btn btn-icon" onclick="zoomOut()">➖</button>
+        </div>
+        <div style="display: flex; gap: 5px; padding: 0 10px;">
+            <button class="btn" onclick="showLevels()">关卡</button>
+            <button class="btn" onclick="showHelp()">帮助</button>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 13px; color: #888;">速度:</span>
+            <input type="range" id="clockSpeed" min="1" max="30" value="10" style="width: 100px;">
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="left-panel">
+            <div class="panel-header">📦 组件库</div>
+            
+            <div class="category-title">🔌 逻辑门</div>
+            <div class="component-item" draggable="true" data-type="AND">
+                <div class="component-icon">&</div>
+                <div>AND 与门</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="OR">
+                <div class="component-icon">≥1</div>
+                <div>OR 或门</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="NOT">
+                <div class="component-icon">¬</div>
+                <div>NOT 非门</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="NAND">
+                <div class="component-icon">↑</div>
+                <div>NAND 与非</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="XOR">
+                <div class="component-icon">⊕</div>
+                <div>XOR 异或</div>
+            </div>
+            
+            <div class="category-title">🎮 输入输出</div>
+            <div class="component-item" draggable="true" data-type="SWITCH">
+                <div class="component-icon">⚡</div>
+                <div>开关</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="LED">
+                <div class="component-icon">💡</div>
+                <div>LED灯</div>
+            </div>
+            <div class="component-item" draggable="true" data-type="CLOCK">
+                <div class="component-icon">⏱</div>
+                <div>时钟</div>
+            </div>
+            
+            <div class="category-title">💾 存储</div>
+            <div class="component-item" draggable="true" data-type="DFF">
+                <div class="component-icon">D</div>
+                <div>D触发器</div>
+            </div>
+            
+            <div class="category-title">⚙️ 高级</div>
+            <div class="component-item" draggable="true" data-type="HALFADDER">
+                <div class="component-icon">+</div>
+                <div>半加器</div>
+            </div>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="mainCanvas"></canvas>
+            <div class="status-bar">
+                <div>仿真: <span id="simStatus">暂停</span></div>
+                <div>组件: <span id="compCount">0</span></div>
+                <div>连线: <span id="wireCount">0</span></div>
+                <div>缩放: <span id="zoomLevel">100%</span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="helpModal">
+        <div class="modal">
+            <div class="modal-header">❓ 帮助</div>
+            <div style="font-size: 13px; line-height: 2;">
+                <div>🎯 <b>操作说明</b></div>
+                <div>• 从左侧拖拽组件到画布</div>
+                <div>• 点击选中，拖拽移动</div>
+                <div>• 从端口拖拽创建连线</div>
+                <div>• 双击开关切换状态</div>
+                <div>• Delete删除选中</div>
+                <div style="margin-top: 15px;">⌨️ <b>快捷键</b></div>
+                <div>• Ctrl+Z 撤销</div>
+                <div>• Ctrl+Y 重做</div>
+                <div>• Space 播放/暂停</div>
+                <div>• R 重置</div>
+                <div>• 滚轮缩放，中键平移</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('helpModal')">好的</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="levelModal">
+        <div class="modal">
+            <div class="modal-header">🎮 关卡挑战</div>
+            <div style="font-size: 13px; line-height: 2;">
+                <div style="font-weight: 600; margin-bottom: 10px;">📚 教程</div>
+                <div class="component-item" style="cursor: pointer;" onclick="loadLevel(1)">
+                    <div class="component-icon">1</div>
+                    <div>
+                        <div>第一个电路</div>
+                        <div style="font-size: 11px; color: #888;">用开关控制LED</div>
+                    </div>
+                </div>
+                <div class="component-item" style="cursor: pointer;" onclick="loadLevel(2)">
+                    <div class="component-icon">2</div>
+                    <div>
+                        <div>与门入门</div>
+                        <div style="font-size: 11px; color: #888;">两个开关都打开LED才亮</div>
+                    </div>
+                </div>
+                <div class="component-item" style="cursor: pointer;" onclick="loadLevel(3)">
+                    <div class="component-icon">3</div>
+                    <div>
+                        <div>或门练习</div>
+                        <div style="font-size: 11px; color: #888;">任意开关打开LED就亮</div>
+                    </div>
+                </div>
+                <div style="font-weight: 600; margin: 15px 0 10px;">⚔️ 挑战</div>
+                <div class="component-item" style="cursor: pointer;" onclick="loadLevel(4)">
+                    <div class="component-icon">🏆</div>
+                    <div>
+                        <div>半加器挑战</div>
+                        <div style="font-size: 11px; color: #888;">用逻辑门构建半加器</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal('levelModal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let circuit = { components: [], wires: [] };
+        let viewport = { x: 200, y: 200, zoom: 1 };
+        let selection = { components: [], wires: [] };
+        let isSimulating = false, simulationInterval = null;
+        let tickCount = 0;
+        let history = [], historyIndex = -1;
+        let isDragging = false, isPanning = false, isWiring = false;
+        let dragStart = { x: 0, y: 0 }, wiringStart = null, tempWireEnd = { x: 0, y: 0 };
+        let lastMousePos = { x: 0, y: 0 };
+
+        const COMPONENT_TYPES = {
+            AND: { name: 'AND', inputs: 2, outputs: 1, width: 70, height: 40, color: '#4a9eff', label: 'AND', evaluate: i => [i[0] & i[1]] },
+            OR: { name: 'OR', inputs: 2, outputs: 1, width: 70, height: 40, color: '#4aff6a', label: 'OR', evaluate: i => [i[0] | i[1]] },
+            NOT: { name: 'NOT', inputs: 1, outputs: 1, width: 50, height: 35, color: '#ff4a4a', label: 'NOT', evaluate: i => [1 - i[0]] },
+            NAND: { name: 'NAND', inputs: 2, outputs: 1, width: 70, height: 40, color: '#ff9e4a', label: 'NAND', evaluate: i => [1 - (i[0] & i[1])] },
+            XOR: { name: 'XOR', inputs: 2, outputs: 1, width: 70, height: 40, color: '#ff4aff', label: 'XOR', evaluate: i => [i[0] ^ i[1]] },
+            SWITCH: { name: '开关', inputs: 0, outputs: 1, width: 50, height: 50, color: '#ffcc00', label: 'SW', isInput: true, state: 0 },
+            LED: { name: 'LED', inputs: 1, outputs: 0, width: 50, height: 50, color: '#ff3366', label: 'LED', isOutput: true },
+            CLOCK: { name: '时钟', inputs: 0, outputs: 1, width: 50, height: 50, color: '#9933ff', label: 'CLK', isInput: true, state: 0 },
+            DFF: { name: 'D触发器', inputs: 2, outputs: 2, width: 70, height: 60, color: '#33cc99', label: 'DFF', isMemory: true, state: 0, lastClock: 0 },
+            HALFADDER: { name: '半加器', inputs: 2, outputs: 2, width: 80, height: 50, color: '#66cc66', label: 'HA' }
+        };
+
+        function init() {
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            setupCanvasEvents();
+            setupDragEvents();
+            setupKeyboardEvents();
+            render();
+            saveState();
+        }
+
+        function resizeCanvas() {
+            const container = document.querySelector('.canvas-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            render();
+        }
+
+        function getCanvasPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left - viewport.x) / viewport.zoom,
+                y: (e.clientY - rect.top - viewport.y) / viewport.zoom
+            };
+        }
+
+        function setupCanvasEvents() {
+            canvas.addEventListener('mousedown', e => {
+                const pos = getCanvasPos(e);
+                lastMousePos = { x: e.clientX, y: e.clientY };
+                
+                if (e.button === 1) { isPanning = true; canvas.style.cursor = 'grabbing'; return; }
+                
+                const port = findPortAt(pos.x, pos.y);
+                if (port && e.button === 0) {
+                    isWiring = true;
+                    wiringStart = port;
+                    tempWireEnd = pos;
+                    return;
+                }
+                
+                const comp = findComponentAt(pos.x, pos.y);
+                if (comp && e.button === 0) {
+                    if (!selection.components.includes(comp)) { clearSelection(); selection.components.push(comp); }
+                    isDragging = true;
+                    dragStart = { x: pos.x - comp.x, y: pos.y - comp.y };
+                    render();
+                    return;
+                }
+                
+                const wire = findWireAt(pos.x, pos.y);
+                if (wire && e.button === 0) {
+                    clearSelection(); selection.wires.push(wire); render();
+                    return;
+                }
+                
+                clearSelection(); render();
+            });
+            
+            canvas.addEventListener('mousemove', e => {
+                const pos = getCanvasPos(e);
+                document.getElementById('compCount').textContent = circuit.components.length;
+                document.getElementById('wireCount').textContent = circuit.wires.length;
+                
+                if (isPanning) {
+                    viewport.x += e.clientX - lastMousePos.x;
+                    viewport.y += e.clientY - lastMousePos.y;
+                    lastMousePos = { x: e.clientX, y: e.clientY };
+                    render();
+                    return;
+                }
+                
+                if (isWiring) { tempWireEnd = pos; render(); return; }
+                if (isDragging && selection.components.length > 0) {
+                    const dx = pos.x - dragStart.x - selection.components[0].x;
+                    const dy = pos.y - dragStart.y - selection.components[0].y;
+                    const grid = 20;
+                    selection.components.forEach(c => {
+                        c.x = Math.round((c.x + dx) / grid) * grid;
+                        c.y = Math.round((c.y + dy) / grid) * grid;
+                    });
+                    dragStart = { x: pos.x - selection.components[0].x, y: pos.y - selection.components[0].y };
+                    render();
+                }
+            });
+            
+            canvas.addEventListener('mouseup', e => {
+                if (isPanning) { isPanning = false; canvas.style.cursor = 'crosshair'; return; }
+                
+                if (isWiring) {
+                    const pos = getCanvasPos(e);
+                    const endPort = findPortAt(pos.x, pos.y);
+                    if (endPort && endPort !== wiringStart) {
+                        if (wiringStart.isOutput && !endPort.isOutput && wiringStart.component !== endPort.component) {
+                            circuit.wires = circuit.wires.filter(w => 
+                                !(w.to.component === endPort.component && w.to.port === endPort.portIndex)
+                            );
+                            addWire(wiringStart.component, wiringStart.portIndex, endPort.component, endPort.portIndex);
+                        }
+                    }
+                    isWiring = false; wiringStart = null; saveState(); render();
+                    return;
+                }
+                
+                if (isDragging) { isDragging = false; saveState(); }
+            });
+            
+            canvas.addEventListener('wheel', e => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                viewport.zoom = Math.max(0.3, Math.min(3, viewport.zoom * delta));
+                document.getElementById('zoomLevel').textContent = Math.round(viewport.zoom * 100) + '%';
+                render();
+            });
+            
+            canvas.addEventListener('dblclick', e => {
+                const pos = getCanvasPos(e);
+                const comp = findComponentAt(pos.x, pos.y);
+                if (comp && (comp.type === 'SWITCH')) {
+                    comp.state = 1 - comp.state;
+                    if (comp.outputs[0]) comp.outputs[0].value = comp.state;
+                    simulate(); render();
+                }
+            });
+        }
+
+        function setupDragEvents() {
+            document.querySelectorAll('.component-item').forEach(item => {
+                item.addEventListener('dragstart', e => {
+                    if (item.dataset.type) e.dataTransfer.setData('type', item.dataset.type);
+                });
+            });
+            canvas.addEventListener('dragover', e => e.preventDefault());
+            canvas.addEventListener('drop', e => {
+                e.preventDefault();
+                const type = e.dataTransfer.getData('type');
+                if (type) {
+                    const pos = getCanvasPos(e);
+                    const grid = 20;
+                    addComponent(type, Math.round(pos.x / grid) * grid, Math.round(pos.y / grid) * grid);
+                }
+            });
+        }
+
+        function setupKeyboardEvents() {
+            document.addEventListener('keydown', e => {
+                if (e.target.tagName === 'INPUT') return;
+                if (e.key === 'Delete') deleteSelected();
+                else if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+                else if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+                else if (e.key === ' ') { e.preventDefault(); toggleSimulation(); }
+                else if (e.key === 'r' || e.key === 'R') { resetSimulation(); }
+            });
+        }
+
+        function addComponent(type, x, y) {
+            const def = COMPONENT_TYPES[type];
+            if (!def) return;
+            
+            const comp = {
+                id: 'c_' + Date.now(),
+                type: type,
+                x: x, y: y,
+                width: def.width, height: def.height,
+                inputs: [], outputs: [],
+                state: def.state || 0, lastClock: 0
+            };
+            
+            for (let i = 0; i < def.inputs; i++) comp.inputs.push({ value: 0 });
+            for (let i = 0; i < def.outputs; i++) comp.outputs.push({ value: 0 });
+            if (def.isInput && comp.outputs[0]) comp.outputs[0].value = comp.state;
+            
+            circuit.components.push(comp);
+            clearSelection(); selection.components.push(comp);
+            saveState(); render();
+        }
+
+        function addWire(fromComp, fromPort, toComp, toPort) {
+            circuit.wires.push({
+                id: 'w_' + Date.now(),
+                from: { component: fromComp, port: fromPort },
+                to: { component: toComp, port: toPort },
+                value: 0
+            });
+            simulate(); render();
+        }
+
+        function findComponentAt(x, y) {
+            for (let i = circuit.components.length - 1; i >= 0; i--) {
+                const c = circuit.components[i];
+                if (x >= c.x && x <= c.x + c.width && y >= c.y && y <= c.y + c.height) return c;
+            }
+            return null;
+        }
+
+        function findPortAt(x, y) {
+            const size = 12;
+            for (const comp of circuit.components) {
+                const def = COMPONENT_TYPES[comp.type];
+                for (let i = 0; i < comp.inputs.length; i++) {
+                    const p = getInputPortPos(comp, i);
+                    if (Math.abs(x - p.x) < size && Math.abs(y - p.y) < size)
+                        return { component: comp, portIndex: i, isOutput: false };
+                }
+                for (let i = 0; i < comp.outputs.length; i++) {
+                    const p = getOutputPortPos(comp, i);
+                    if (Math.abs(x - p.x) < size && Math.abs(y - p.y) < size)
+                        return { component: comp, portIndex: i, isOutput: true };
+                }
+            }
+            return null;
+        }
+
+        function getInputPortPos(comp, i) {
+            const def = COMPONENT_TYPES[comp.type];
+            const spacing = comp.height / (def.inputs + 1);
+            return { x: comp.x, y: comp.y + spacing * (i + 1) };
+        }
+
+        function getOutputPortPos(comp, i) {
+            const def = COMPONENT_TYPES[comp.type];
+            const spacing = comp.height / (def.outputs + 1);
+            return { x: comp.x + comp.width, y: comp.y + spacing * (i + 1) };
+        }
+
+        function findWireAt(x, y) {
+            for (const wire of circuit.wires) {
+                const from = getOutputPortPos(wire.from.component, wire.from.port);
+                const to = getInputPortPos(wire.to.component, wire.to.port);
+                const midX = (from.x + to.x) / 2;
+                const d1 = distToSeg(x, y, from.x, from.y, midX, from.y);
+                const d2 = distToSeg(x, y, midX, from.y, midX, to.y);
+                const d3 = distToSeg(x, y, midX, to.y, to.x, to.y);
+                if (Math.min(d1, d2, d3) < 10) return wire;
+            }
+            return null;
+        }
+
+        function distToSeg(px, py, x1, y1, x2, y2) {
+            const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
+            const dot = A * C + B * D, lenSq = C * C + D * D;
+            let param = lenSq !== 0 ? dot / lenSq : -1;
+            let xx, yy;
+            if (param < 0) { xx = x1; yy = y1; }
+            else if (param > 1) { xx = x2; yy = y2; }
+            else { xx = x1 + param * C; yy = y1 + param * D; }
+            return Math.sqrt((px - xx) ** 2 + (py - yy) ** 2);
+        }
+
+        function clearSelection() { selection.components = []; selection.wires = []; }
+
+        function deleteSelected() {
+            selection.wires.forEach(w => {
+                const i = circuit.wires.indexOf(w);
+                if (i > -1) circuit.wires.splice(i, 1);
+            });
+            selection.components.forEach(c => {
+                circuit.wires = circuit.wires.filter(w => 
+                    w.from.component !== c && w.to.component !== c
+                );
+                const i = circuit.components.indexOf(c);
+                if (i > -1) circuit.components.splice(i, 1);
+            });
+            clearSelection(); saveState(); simulate(); render();
+        }
+
+        function toggleSimulation() {
+            isSimulating ? stopSimulation() : startSimulation();
+        }
+
+        function startSimulation() {
+            if (isSimulating) return;
+            isSimulating = true;
+            document.getElementById('playBtn').textContent = '⏸';
+            document.getElementById('simStatus').textContent = '运行';
+            const speed = document.getElementById('clockSpeed').value;
+            simulationInterval = setInterval(() => {
+                tickCount++;
+                circuit.components.filter(c => c.type === 'CLOCK').forEach(c => {
+                    c.state = tickCount % 2;
+                    c.outputs[0].value = c.state;
+                });
+                simulate(); render();
+            }, 1000 / speed);
+        }
+
+        function stopSimulation() {
+            isSimulating = false;
+            document.getElementById('playBtn').textContent = '▶';
+            document.getElementById('simStatus').textContent = '暂停';
+            if (simulationInterval) clearInterval(simulationInterval);
+        }
+
+        function stepSimulation() {
+            tickCount++;
+            circuit.components.filter(c => c.type === 'CLOCK').forEach(c => {
+                c.state = tickCount % 2;
+                c.outputs[0].value = c.state;
+            });
+            simulate(); render();
+        }
+
+        function resetSimulation() {
+            tickCount = 0;
+            circuit.components.forEach(c => {
+                if (c.type === 'CLOCK' || c.type === 'SWITCH') {
+                    c.state = 0;
+                    if (c.outputs[0]) c.outputs[0].value = 0;
+                }
+                if (c.type === 'DFF') { c.state = 0; c.lastClock = 0; }
+                c.inputs.forEach(i => i.value = 0);
+                c.outputs.forEach(o => o.value = 0);
+            });
+            simulate(); render();
+        }
+
+        function simulate() {
+            circuit.wires.forEach(w => {
+                w.value = w.from.component.outputs[w.from.port].value;
+                w.to.component.inputs[w.to.port].value = w.value;
+            });
+            
+            const evaluated = new Set();
+            const queue = [...circuit.components.filter(c => COMPONENT_TYPES[c.type].isInput)];
+            
+            while (queue.length > 0) {
+                const comp = queue.shift();
+                if (evaluated.has(comp.id)) continue;
+                
+                const def = COMPONENT_TYPES[comp.type];
+                
+                if (def.evaluate) {
+                    const vals = comp.inputs.map(i => i.value);
+                    const outs = def.evaluate(vals);
+                    outs.forEach((v, i) => { if (comp.outputs[i]) comp.outputs[i].value = v; });
+                }
+                
+                if (comp.type === 'HALFADDER') {
+                    const a = comp.inputs[0].value, b = comp.inputs[1].value;
+                    comp.outputs[0].value = a ^ b;
+                    comp.outputs[1].value = a & b;
+                }
+                
+                if (comp.type === 'DFF') {
+                    const d = comp.inputs[0].value, clk = comp.inputs[1].value;
+                    if (clk === 1 && comp.lastClock === 0) comp.state = d;
+                    comp.lastClock = clk;
+                    comp.outputs[0].value = comp.state;
+                    comp.outputs[1].value = 1 - comp.state;
+                }
+                
+                evaluated.add(comp.id);
+                
+                circuit.wires.forEach(w => {
+                    if (w.from.component === comp && !evaluated.has(w.to.component.id)) {
+                        queue.push(w.to.component);
+                    }
+                });
+            }
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(viewport.x, viewport.y);
+            ctx.scale(viewport.zoom, viewport.zoom);
+            
+            drawGrid();
+            circuit.wires.forEach(drawWire);
+            if (isWiring && wiringStart) drawTempWire();
+            circuit.components.forEach(drawComponent);
+            
+            ctx.restore();
+        }
+
+        function drawGrid() {
+            const grid = 20;
+            const startX = Math.floor(-viewport.x / viewport.zoom / grid) * grid - grid;
+            const startY = Math.floor(-viewport.y / viewport.zoom / grid) * grid - grid;
+            const endX = startX + canvas.width / viewport.zoom + grid * 2;
+            const endY = startY + canvas.height / viewport.zoom + grid * 2;
+            
+            ctx.strokeStyle = '#2a2a2a';
+            ctx.lineWidth = 1;
+            
+            for (let x = startX; x < endX; x += grid) {
+                ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
+            }
+            for (let y = startY; y < endY; y += grid) {
+                ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+            }
+            
+            ctx.strokeStyle = '#404040';
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(startX, 0); ctx.lineTo(endX, 0); ctx.moveTo(0, startY); ctx.lineTo(0, endY); ctx.stroke();
+        }
+
+        function drawWire(wire) {
+            const from = getOutputPortPos(wire.from.component, wire.from.port);
+            const to = getInputPortPos(wire.to.component, wire.to.port);
+            const midX = (from.x + to.x) / 2;
+            
+            ctx.strokeStyle = wire.value ? '#00ff00' : '#666';
+            ctx.lineWidth = selection.wires.includes(wire) ? 4 : 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(midX, from.y);
+            ctx.lineTo(midX, to.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.stroke();
+            
+            if (wire.value) {
+                ctx.strokeStyle = '#00ff0040';
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(midX, from.y);
+                ctx.lineTo(midX, to.y);
+                ctx.lineTo(to.x, to.y);
+                ctx.stroke();
+            }
+        }
+
+        function drawTempWire() {
+            const from = wiringStart.isOutput 
+                ? getOutputPortPos(wiringStart.component, wiringStart.portIndex)
+                : getInputPortPos(wiringStart.component, wiringStart.portIndex);
+            
+            ctx.strokeStyle = '#0078d4';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]);
+            ctx.lineCap = 'round';
+            
+            const midX = (from.x + tempWireEnd.x) / 2;
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(midX, from.y);
+            ctx.lineTo(midX, tempWireEnd.y);
+            ctx.lineTo(tempWireEnd.x, tempWireEnd.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawComponent(comp) {
+            const def = COMPONENT_TYPES[comp.type];
+            const selected = selection.components.includes(comp);
+            
+            ctx.fillStyle = '#2d2d2d';
+            ctx.strokeStyle = selected ? '#0078d4' : def.color;
+            ctx.lineWidth = selected ? 3 : 2;
+            
+            roundRect(ctx, comp.x, comp.y, comp.width, comp.height, 8);
+            ctx.fill(); ctx.stroke();
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(def.label, comp.x + comp.width / 2, comp.y + comp.height / 2);
+            
+            for (let i = 0; i < comp.inputs.length; i++) {
+                const pos = getInputPortPos(comp, i);
+                const val = comp.inputs[i].value;
+                ctx.fillStyle = val ? '#00ff00' : '#555';
+                ctx.beginPath(); ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#888'; ctx.lineWidth = 2; ctx.stroke();
+            }
+            
+            for (let i = 0; i < comp.outputs.length; i++) {
+                const pos = getOutputPortPos(comp, i);
+                const val = comp.outputs[i].value;
+                ctx.fillStyle = val ? '#00ff00' : '#555';
+                ctx.beginPath(); ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#888'; ctx.lineWidth = 2; ctx.stroke();
+            }
+            
+            if (comp.type === 'SWITCH') {
+                const cx = comp.x + comp.width / 2;
+                const cy = comp.y + comp.height / 2;
+                ctx.fillStyle = comp.state ? '#00ff00' : '#444';
+                ctx.beginPath(); ctx.arc(cx, cy - 5, 12, 0, Math.PI * 2); ctx.fill();
+            }
+            
+            if (comp.type === 'LED') {
+                const cx = comp.x + comp.width / 2;
+                const cy = comp.y + comp.height / 2;
+                ctx.fillStyle = comp.inputs[0].value ? '#ff0000' : '#440000';
+                ctx.beginPath(); ctx.arc(cx, cy - 5, 14, 0, Math.PI * 2); ctx.fill();
+                if (comp.inputs[0].value) {
+                    ctx.fillStyle = '#ff000040';
+                    ctx.beginPath(); ctx.arc(cx, cy - 5, 20, 0, Math.PI * 2); ctx.fill();
+                }
+            }
+            
+            if (comp.type === 'CLOCK') {
+                const cx = comp.x + comp.width / 2;
+                const cy = comp.y + comp.height / 2;
+                ctx.fillStyle = comp.state ? '#9933ff' : '#331155';
+                ctx.beginPath(); ctx.arc(cx, cy - 5, 12, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        function roundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }
+
+        function saveState() {
+            const state = JSON.parse(JSON.stringify(circuit));
+            history = history.slice(0, historyIndex + 1);
+            history.push(state);
+            if (history.length > 50) history.shift();
+            else historyIndex++;
+        }
+
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                circuit = JSON.parse(JSON.stringify(history[historyIndex]));
+                clearSelection(); render();
+            }
+        }
+
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                circuit = JSON.parse(JSON.stringify(history[historyIndex]));
+                clearSelection(); render();
+            }
+        }
+
+        function zoomIn() { viewport.zoom = Math.min(3, viewport.zoom * 1.2); document.getElementById('zoomLevel').textContent = Math.round(viewport.zoom * 100) + '%'; render(); }
+        function zoomOut() { viewport.zoom = Math.max(0.3, viewport.zoom / 1.2); document.getElementById('zoomLevel').textContent = Math.round(viewport.zoom * 100) + '%'; render(); }
+        
+        function newCircuit() {
+            if (confirm('确定要新建电路吗？当前进度将丢失。')) {
+                circuit = { components: [], wires: [] };
+                history = []; historyIndex = -1;
+                clearSelection(); saveState(); render();
+            }
+        }
+
+        function saveCircuit() {
+            const data = JSON.stringify(circuit);
+            const blob = new Blob([data], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'circuit.json';
+            a.click();
+        }
+
+        function showHelp() { document.getElementById('helpModal').classList.add('show'); }
+        function showLevels() { document.getElementById('levelModal').classList.add('show'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+        function loadLevel(num) {
+            closeModal('levelModal');
+            circuit = { components: [], wires: [] };
+            history = []; historyIndex = -1;
+            
+            if (num === 1) {
+                addComponent('SWITCH', -100, -50);
+                addComponent('LED', 50, -50);
+            } else if (num === 2) {
+                addComponent('SWITCH', -150, -80);
+                addComponent('SWITCH', -150, 20);
+                addComponent('AND', -20, -30);
+                addComponent('LED', 100, -30);
+            } else if (num === 3) {
+                addComponent('SWITCH', -150, -80);
+                addComponent('SWITCH', -150, 20);
+                addComponent('OR', -20, -30);
+                addComponent('LED', 100, -30);
+            } else if (num === 4) {
+                addComponent('SWITCH', -150, -60);
+                addComponent('SWITCH', -150, 60);
+                addComponent('LED', 150, -30);
+                addComponent('LED', 150, 70);
+            }
+            
+            clearSelection();
+            saveState();
+            simulate();
+            render();
+            alert('关卡已加载！完成电路连接后点击"关卡"查看提示。');
+        }
+
+        function nextLevel() {
+            alert('恭喜！继续探索更多电路设计吧！');
+        }
+
+        init();
+    </script>
+</body>
+</html>
