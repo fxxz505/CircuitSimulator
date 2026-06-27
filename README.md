@@ -299,6 +299,74 @@ npx gh-pages -d dist                    # 推送 dist/ 到 gh-pages 分支
 
 > **注意**：`vite.config.js` 中 `base` 需设置为 `'/<仓库名>/'`，否则资源路径会 404。
 
+## 开发指南
+
+### 添加新元器件
+
+1. **定义元器件类型** — 在 [src/constants/componentTypes.js](file:///d:/DLOW/DM/THIRD/src/constants/componentTypes.js) 中添加：
+
+```javascript
+MYGATE: {
+  name: '我的门',
+  inputs: 2,
+  outputs: 1,
+  width: 80,
+  height: 60,
+  color: '#4a9eff',
+  label: 'MY',
+  portLabels: { inputs: ['A', 'B'], outputs: ['Y'] },
+  evaluate: (inputs) => [inputs[0] & inputs[1]]
+}
+```
+
+2. **添加元器件详情** — 在 [src/constants/componentDetails.js](file:///d:/DLOW/DM/THIRD/src/constants/componentDetails.js) 中添加帮助信息：
+
+```javascript
+MYGATE: {
+  name: '我的门 (My Gate)',
+  description: '自定义逻辑门描述。',
+  truthTable: [
+    { inputs: [0, 0], output: [0] },
+    { inputs: [1, 1], output: [1] }
+  ],
+  expression: 'Y = A · B',
+  example: '使用示例说明。',
+  pins: ['A: 输入A', 'B: 输入B', 'Y: 输出']
+}
+```
+
+3. **添加绘制逻辑** — 在 [src/components/Canvas.vue](file:///d:/DLOW/DM/THIRD/src/components/Canvas.vue) 的 `drawComponent` 函数中添加 `case 'MYGATE':` 分支。
+
+4. **添加分类** — 在 `componentTypes.js` 的 `CATEGORIES` 中将 `MYGATE` 加入对应分类数组。
+
+### 添加新汇编指令
+
+1. 在 [src/constants/assemblyInstructions.js](file:///d:/DLOW/DM/THIRD/src/constants/assemblyInstructions.js) 中添加指令定义（操作码、格式、描述）
+2. 在 [src/composables/useCPU.js](file:///d:/DLOW/DM/THIRD/src/composables/useCPU.js) 的 `executeInstruction` 中添加 `case` 分支
+3. 在 [src/composables/useAssembler.js](file:///d:/DLOW/DM/THIRD/src/composables/useAssembler.js) 中添加汇编语法解析
+
+## 常见问题
+
+**Q: 元器件无法连线？**
+确保从输出端口（右侧）拖到输入端口（左侧）。连线过程中会实时检测短路，多驱动冲突时会阻止连接。
+
+**Q: 时序电路不工作？**
+检查 CLOCK 是否已连接到时序元件的 CLK 引脚，且仿真已启动（▶ 按钮）。CLOCK 频率可在双击后配置。
+
+**Q: CPU 程序不执行？**
+1. 确认汇编代码已通过汇编器烧录到 ROM
+2. 确认 ROM 已连接到 CPU 的指令总线
+3. 在 CPU 调试器中检查 PC 是否在前进
+
+**Q: 导入电路失败？**
+确保 JSON 文件格式正确，且元器件类型在当前版本中存在。旧版本保存的电路可能因元器件重命名而无法导入。
+
+**Q: 部署后页面空白？**
+检查 `vite.config.js` 的 `base` 路径是否与仓库名匹配。例如仓库名为 `CircuitSimulator`，则 `base: '/CircuitSimulator/'`。
+
+**Q: 如何贡献代码？**
+Fork 仓库 → 创建分支 → 提交更改 → 发起 Pull Request。欢迎新增元器件、修复 Bug 或改进文档。
+
 ## License
 
 MIT

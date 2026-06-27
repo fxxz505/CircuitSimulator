@@ -150,6 +150,45 @@ src/
 └── style.css                    # 全局样式
 ```
 
+## 架构设计
+
+### 模块关系
+
+```
+App.vue
+  ├── Toolbar.vue ──── 仿真控制 / 文件操作 / 分析工具
+  ├── ComponentLibrary.vue ──── 元器件拖拽源
+  ├── Canvas.vue ──── 画布渲染 + 交互（核心）
+  │     ├── useCircuit.js ──── 数据层（元器件/连线/选择/历史）
+  │     ├── useSimulation.js ──── 仿真引擎
+  │     ├── useErrorDetection.js ──── 错误检测
+  │     └── useScreenManager.js ──── 视口管理
+  ├── CPUDbgPanel.vue ──── useCPU.js + useAssembler.js
+  ├── HelpModal.vue ──── componentDetails.js
+  └── 各类编辑器对话框
+```
+
+### 数据流
+
+```
+用户操作 → useCircuit (数据变更) → Canvas (重绘)
+                ↓
+         useSimulation (仿真引擎)
+                ↓
+         更新 outputs[] → 连线传播 → 输入更新
+                ↓
+         Canvas 渲染循环 (60fps requestAnimationFrame)
+```
+
+### 渲染管线
+
+Canvas.vue 使用 `requestAnimationFrame` 维护 60fps 渲染循环：
+1. 清空画布，应用视口变换（平移 + 缩放）
+2. 绘制网格背景
+3. 按拓扑顺序绘制连线和元器件
+4. 绘制选中态、悬停态、对齐参考线等覆盖层
+5. 绘制临时连线（布线中）
+
 ## 数据结构
 
 ### 元器件 (Component)
@@ -207,6 +246,59 @@ src/
 
 ### 短路检测
 连线过程中实时检查目标端口是否已有驱动源，多驱动冲突时阻止连线并提示。
+
+## 扩展开发
+
+### 添加新元器件
+
+**步骤 1**：在 `src/constants/componentTypes.js` 定义元器件类型：
+
+```javascript
+MYGATE: {
+  name: '我的门',
+  inputs: 2,
+  outputs: 1,
+  width: 80,
+  height: 60,
+  color: '#4a9eff',
+  label: 'MY',
+  portLabels: { inputs: ['A', 'B'], outputs: ['Y'] },
+  evaluate: (inputs) => [inputs[0] & inputs[1]]
+}
+```
+
+关键字段说明：
+- `inputs` / `outputs` — 输入输出端口数
+- `evaluate` — 组合逻辑求值函数（输入数组 → 输出数组）
+- `isMemory` — 设为 `true` 表示时序元件（有时钟输入和内部状态）
+- `state` — 时序元件的初始状态
+- `portLabels` — 端口标签（对象格式 `{ inputs: [...], outputs: [...] }`）
+- `color` — 元器件颜色（按分类统一：逻辑门蓝/触发器绿/运算器橙/存储器紫等）
+
+**步骤 2**：在 `src/constants/componentDetails.js` 添加帮助信息（真值表、公式、示例）。
+
+**步骤 3**：在 `src/components/Canvas.vue` 的 `drawComponent` 函数中添加 `case 'MYGATE':` 绘制分支。
+
+**步骤 4**：在 `componentTypes.js` 的 `CATEGORIES` 中将元器件加入对应分类。
+
+**步骤 5**（时序元件）：在 `src/composables/useSimulation.js` 的仿真循环中添加状态更新逻辑。
+
+### 添加新汇编指令
+
+1. 在 `src/constants/assemblyInstructions.js` 添加指令定义（操作码、助记符、格式、描述）
+2. 在 `src/composables/useCPU.js` 的 `executeInstruction` 添加 `case` 执行分支
+3. 在 `src/composables/useAssembler.js` 添加汇编语法解析规则
+4. 在 `src/constants/asmTemplates.js` 添加代码模板（可选）
+
+### 自定义组件
+
+通过 UI 打包自定义组件时，系统会：
+1. 收集选中范围内的元器件和连线
+2. 识别外部连接点作为引脚
+3. 生成组件定义并注册到 `useCustomComponents.js`
+4. 在元器件库"自定义"分类中显示
+
+自定义组件可导出为 JSON 文件分享，导入时恢复完整内部电路。
 
 ## 快捷键
 
@@ -292,6 +384,20 @@ src/
 | SP | 栈指针（8 位） |
 | FLAGS | 标志寄存器（零标志 Z、进位标志 C） |
 
+### 内存与 I/O 映射
+
+CPU 地址空间 8 位（0x00–0xFF），bit7 区分内存与 I/O：
+
+| 地址范围 | 类型 | 说明 |
+|----------|------|------|
+| `0x00–0x7F` | RAM | 通用内存（128 字节） |
+| `0x80–0xFF` | I/O | I/O 端口（bit7=1 标记） |
+
+**I/O 端口访问**：
+- `LOAD R0, [0x80]` — 读取 I/O 端口 0 的输入
+- `STORE R0, [0x81]` — 写入 I/O 端口 1 的输出
+- 配合 IO_BRIDGE / IO_PORT 元器件连接外部电路
+
 ### 汇编示例
 
 #### 1 到 10 求和
@@ -362,6 +468,25 @@ square:
 2. 放置 1 个 COUNTER4，CLK 接 CLOCK，UP/DN 接 GND（递增），RST 接 GND
 3. 4 个输出 Q0–Q3 各接 1 个 LED
 4. 开始仿真，观察 LED 按二进制递增
+
+### CPU 读取开关控制 LED
+
+演示 CPU 通过 I/O 端口读取输入并控制输出：
+
+1. 放置 CPU、ROM256、IO_BRIDGE
+2. 连接 ROM256 到 CPU 指令总线
+3. 放置 8 个 SWITCH 连接到 IO_BRIDGE 输入端口
+4. 放置 8 个 LED 连接到 IO_BRIDGE 输出端口
+5. 在汇编编辑器中编写程序：
+
+```asm
+loop:
+  LOAD R0, [0x80]    ; 读取输入端口 0（开关状态）
+  STORE R0, [0x81]   ; 写入输出端口 1（LED）
+  JMP loop           ; 循环
+```
+
+6. 烧录到 ROM，启动仿真，拨动开关即可控制 LED
 
 ## License
 
