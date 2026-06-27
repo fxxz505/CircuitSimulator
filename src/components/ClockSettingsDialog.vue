@@ -1,15 +1,15 @@
 <template>
-  <div v-if="visible" class="clock-settings-overlay" @click.self="close">
+  <div class="clock-settings-overlay" @click.self="close">
     <div class="clock-settings-dialog">
       <div class="dialog-header">
-        <h3>时钟参数设置</h3>
+        <h3>{{ isOscillator ? '振荡器参数设置' : '时钟参数设置' }}</h3>
         <button class="close-btn" @click="close">×</button>
       </div>
       <div class="dialog-body">
         <div class="setting-group">
-          <label>频率: {{ settings.frequency }} Hz</label>
-          <input type="range" v-model.number="settings.frequency" min="1" max="100" @input="updateClock" />
-          <div class="range-labels"><span>1 Hz</span><span>100 Hz</span></div>
+          <label>频率: {{ settings.frequency }} Hz <span v-if="freqCapped" class="warn">（已限制：仿真速度 {{ clockSpeed }} tps，最大 {{ maxFreq }} Hz）</span></label>
+          <input type="range" v-model.number="settings.frequency" :min="1" :max="maxFreq" @input="updateClock" />
+          <div class="range-labels"><span>1 Hz</span><span>{{ maxFreq }} Hz</span></div>
         </div>
         <div class="setting-group">
           <label>占空比: {{ settings.dutyCycle }}%</label>
@@ -19,7 +19,7 @@
         <div class="setting-group">
           <label>相位:</label>
           <div class="phase-selector">
-            <button v-for="p in [0, 90, 180, 270]" :key="p" 
+            <button v-for="p in [0, 90, 180, 270]" :key="p"
                     :class="{ active: settings.phase === p }"
                     @click="settings.phase = p; updateClock()">
               {{ p }}°
@@ -29,7 +29,7 @@
         <div class="setting-group">
           <label class="toggle-label">
             <input type="checkbox" v-model="settings.enabled" @change="updateClock" />
-            启用时钟
+            启用{{ isOscillator ? '振荡器' : '时钟' }}
           </label>
         </div>
         <div class="waveform-preview">
@@ -44,18 +44,24 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 
 const props = defineProps({
-  clockComponent: Object
+  clockComponent: Object,
+  clockSpeed: { type: Number, default: 5 }
 })
 
 const emit = defineEmits(['close', 'update'])
 
-const visible = ref(!!props.clockComponent)
 const waveformCanvas = ref(null)
+const isOscillator = computed(() => props.clockComponent?.type === 'OSCILLATOR')
+
+// P1-8: 频率上限 = clockSpeed/2，保证 period >= 2
+const maxFreq = computed(() => Math.max(1, Math.floor(props.clockSpeed / 2)))
+const freqCapped = ref(false)
+
 const settings = ref({
-  frequency: props.clockComponent?.frequency || 1,
+  frequency: Math.min(props.clockComponent?.frequency || 1, maxFreq.value),
   dutyCycle: props.clockComponent?.dutyCycle || 50,
   phase: props.clockComponent?.phase || 0,
   enabled: props.clockComponent?.enabled !== false
@@ -63,9 +69,10 @@ const settings = ref({
 
 watch(() => props.clockComponent, (newComp) => {
   if (newComp) {
-    visible.value = true
+    const freq = Math.min(newComp.frequency || 1, maxFreq.value)
+    freqCapped.value = (newComp.frequency || 1) > maxFreq.value
     settings.value = {
-      frequency: newComp.frequency || 1,
+      frequency: freq,
       dutyCycle: newComp.dutyCycle || 50,
       phase: newComp.phase || 0,
       enabled: newComp.enabled !== false
@@ -76,12 +83,15 @@ watch(() => props.clockComponent, (newComp) => {
 
 function updateClock() {
   if (props.clockComponent) {
+    freqCapped.value = settings.value.frequency > maxFreq.value
+    if (freqCapped.value) settings.value.frequency = maxFreq.value
     Object.assign(props.clockComponent, settings.value)
     emit('update', props.clockComponent.id, settings.value)
     drawWaveform()
   }
 }
 
+// P1-6: 波形预览使用与仿真相同的公式
 function drawWaveform() {
   if (!waveformCanvas.value) return
   const canvas = waveformCanvas.value
@@ -89,22 +99,12 @@ function drawWaveform() {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
   const { frequency, dutyCycle, phase } = settings.value
-  const period = Math.max(4, Math.round(64 / frequency))
-  const cycles = Math.min(4, Math.ceil(64 / period))
-  
-  ctx.strokeStyle = '#00ff00'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-
-  for (let x = 0; x < canvas.width; x++) {
-    const t = (x / canvas.width) * period * cycles + (phase / 360) * period
-    const pos = t % period
-    const y = pos < (period * dutyCycle / 100) ? 15 : 65
-    
-    if (x === 0) ctx.moveTo(x, y)
-    else ctx.lineTo(x, y)
-  }
-  ctx.stroke()
+  // 与 useSimulation.js 公式一致
+  const period = Math.max(2, Math.round(props.clockSpeed / Math.min(frequency, maxFreq.value)))
+  const phaseOffset = Math.round((phase / 360) * period)
+  const totalTicks = 64
+  const cycles = Math.max(1, Math.ceil(totalTicks / period))
+  const pixelsPerTick = canvas.width / (period * cycles)
 
   // Grid
   ctx.strokeStyle = '#333'
@@ -115,10 +115,22 @@ function drawWaveform() {
   ctx.lineTo(canvas.width, 40)
   ctx.stroke()
   ctx.setLineDash([])
+
+  // Waveform
+  ctx.strokeStyle = '#00ff00'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  for (let x = 0; x < canvas.width; x++) {
+    const tick = Math.floor(x / pixelsPerTick)
+    const pos = ((tick + phaseOffset) % period)
+    const y = pos < (period * dutyCycle / 100) ? 15 : 65
+    if (x === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.stroke()
 }
 
 function close() {
-  visible.value = false
   emit('close')
 }
 </script>
@@ -197,6 +209,8 @@ function close() {
   margin-bottom: 8px;
   font-size: 12px;
 }
+
+.warn { color: #f0ad4e; font-size: 11px; }
 
 .setting-group input[type="range"] {
   width: 100%;

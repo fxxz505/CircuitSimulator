@@ -13,11 +13,26 @@ export function useErrorDetection(circuit) {
     detectFeedbackLoops()
     detectUnconnectedOutputs()
     detectMultipleDrivers()
+    detectOutputToOutputShorts()
 
     return {
       errors: [...errors.value],
       warnings: [...warnings.value]
     }
+  }
+
+  function quickCheckWireConflict(fromComp, fromPort, toComp, toPort, wires) {
+    const wiresList = wires && wires.value ? wires.value : (Array.isArray(wires) ? wires : [])
+
+    if (toComp && toComp.inputs && toPort < toComp.inputs.length) {
+      const hasExistingConnection = wiresList.some(w =>
+        w.to.componentId === toComp.id && w.to.port === toPort
+      )
+      if (hasExistingConnection) {
+        return { valid: false, reason: '该输入端口已被其他输出驱动（短路冲突）' }
+      }
+    }
+    return { valid: true, reason: '' }
   }
 
   function detectFloatingInputs() {
@@ -183,9 +198,27 @@ export function useErrorDetection(circuit) {
     })
   }
 
+  function detectOutputToOutputShorts() {
+    circuit.wires.value.forEach(wire => {
+      const toComp = circuit.getComponentById(wire.to.componentId)
+      if (!toComp || !toComp.inputs) return
+
+      if (wire.to.port >= toComp.inputs.length) {
+        errors.value.push({
+          type: 'output_to_output_short',
+          severity: 'error',
+          component: toComp,
+          message: `输出短路：组件 "${toComp.type}" 的引脚 ${wire.to.port} 不是有效的输入引脚`,
+          suggestion: '不允许将输出直接连接到输出引脚，请连接到输入引脚或使用三态缓冲器'
+        })
+      }
+    })
+  }
+
   return {
     errors,
     warnings,
-    detectErrors
+    detectErrors,
+    quickCheckWireConflict
   }
 }

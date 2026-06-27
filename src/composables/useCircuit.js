@@ -1,38 +1,10 @@
 import { ref, reactive } from 'vue'
 import { COMPONENT_TYPES, getCustomComponentDef } from '../constants/componentTypes'
-
-function calculateTextHeight(text, maxWidth) {
-  const maxCharsPerLine = 30
-  const lineHeight = 24
-  const padding = 20
-  
-  if (!text) {
-    return padding + lineHeight
-  }
-  
-  let lines = 1
-  let currentLineLength = 0
-  
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    if (char === '\n') {
-      lines++
-      currentLineLength = 0
-    } else if (currentLineLength >= maxCharsPerLine) {
-      lines++
-      currentLineLength = 1
-    } else {
-      currentLineLength++
-    }
-  }
-  
-  return padding + lines * lineHeight
-}
+import { calculateTextHeight } from '../utils/textUtils'
 
 export function useCircuit() {
   const components = ref([])
   const wires = ref([])
-  const junctionPoints = ref([])
   const selection = reactive({
     components: [],
     wires: []
@@ -105,6 +77,10 @@ export function useCircuit() {
       comp.lastClock = 0
     }
 
+    if (type === 'DIPSW4') {
+      comp.state = [0, 0, 0, 0]
+    }
+
     // 新增组件初始化
     if (type === 'CLOCK') {
       comp.frequency = 1
@@ -128,9 +104,13 @@ export function useCircuit() {
         registers: { R0: 0, R1: 0, R2: 0, R3: 0 },
         pc: 0,
         ir: 0,
-        flags: { ZERO: false, CARRY: false, HALT: false },
+        sp: 0xFF,
+        stack: new Array(256).fill(0),
+        flags: { ZERO: false, CARRY: false, HALT: false, INT: false },
         running: false,
-        cyclesExecuted: 0
+        cyclesExecuted: 0,
+        interruptEnable: false,
+        interruptVector: new Array(16).fill(0)
       }
       comp.lastClock = 0
       comp.ioOutputs = {}
@@ -147,9 +127,13 @@ export function useCircuit() {
         registers: { R0: 0, R1: 0, R2: 0, R3: 0 },
         pc: 0,
         ir: 0,
-        flags: { ZERO: false, CARRY: false, HALT: false },
+        sp: 0xFF,
+        stack: new Array(256).fill(0),
+        flags: { ZERO: false, CARRY: false, HALT: false, INT: false },
         running: false,
-        cyclesExecuted: 0
+        cyclesExecuted: 0,
+        interruptEnable: false,
+        interruptVector: new Array(16).fill(0)
       }
       comp.lastClock = 0
       comp.ioOutputs = {}
@@ -163,7 +147,7 @@ export function useCircuit() {
         lastData: {},
         lastClk: 0
       }
-      comp.outputs = [0, 0, 0, 0, 0]
+      // 注意：outputs 由下方统一循环创建，此处不再显式赋值（避免端口翻倍）
     }
 
     if (type === 'EXT_RAM') {
@@ -178,6 +162,8 @@ export function useCircuit() {
         dataReg: 0,
         controlReg: 0
       }
+      // directMode=true: 位级直连模式（独立使用）; false: 端口映射模式（与 CPU 配合）
+      comp.directMode = false
     }
 
     if (type === 'IO_PORT') {
@@ -189,6 +175,7 @@ export function useCircuit() {
         inputReg: 0,
         lastWrittenValue: 0
       }
+      comp.directMode = false
     }
 
     if (type === 'TIMER') {
@@ -205,6 +192,72 @@ export function useCircuit() {
         running: false,
         tickCount: 0
       }
+    }
+
+    // ==================== 新增元件初始化 ====================
+    if (type === 'REG8' || type === 'SHIFT_REG8' || type === 'COUNTER8') {
+      comp.state = 0
+      comp.lastClock = 0
+    }
+
+    if (type === 'LATCH_8') {
+      comp.state = 0
+    }
+
+    if (type === 'SCHMITT') {
+      comp.state = 0
+    }
+
+    if (type === 'OSCILLATOR') {
+      comp.frequency = comp.frequency || 2
+      comp.dutyCycle = comp.dutyCycle || 50
+      comp.phase = comp.phase || 0
+      comp.enabled = true
+      comp.waveformHistory = new Array(64).fill(0)
+    }
+
+    if (type === 'SCOPE') {
+      comp.state = { history: new Array(128).fill(0) }
+    }
+
+    if (type === 'ROM32K') {
+      comp.state = new Array(32768).fill(0)
+      comp.assemblySource = ''
+    }
+
+    if (type === 'SRAM32K') {
+      comp.state = {
+        memory: new Array(32768).fill(0),
+        addressReg: 0,
+        dataReg: 0
+      }
+      comp.lastClock = 0
+    }
+
+    if (type === 'UART') {
+      comp.state = {
+        txBuffer: [],
+        rxBuffer: [],
+        txReg: 0,
+        rxReg: 0,
+        txBusy: false,
+        rxReady: false,
+        baudDiv: 8,
+        bitCount: 0,
+        lastClk: 0
+      }
+      comp.lastClock = 0
+    }
+
+    if (type === 'PWM_GENERATOR') {
+      comp.state = { counter: 0, output: 0 }
+      comp.frequency = comp.frequency || 4
+      comp.dutyCycle = comp.dutyCycle || 50
+      comp.lastClock = 0
+    }
+
+    if (type === 'KEYPAD_4x4') {
+      comp.state = { pressed: -1, scanRow: 0, keyMap: 0 }
     }
 
     for (let i = 0; i < def.inputs; i++) {
@@ -260,7 +313,12 @@ export function useCircuit() {
     }
     for (const w of wires.value) {
       if (w.startPointRef && w.startPointRef.wireId === wire.id) {
-        w.startPoint = null
+        // P0 修复：冻结分支起点坐标，仅清空引用，避免视觉跳变回组件端口
+        const sourceWire = wire
+        if (sourceWire.points && w.startPointRef.pointIndex >= 0 && w.startPointRef.pointIndex < sourceWire.points.length) {
+          const pt = sourceWire.points[w.startPointRef.pointIndex]
+          w.startPoint = { x: pt.x, y: pt.y }
+        }
         w.startPointRef = null
       }
     }
@@ -294,49 +352,18 @@ export function useCircuit() {
   function reset() {
     components.value = []
     wires.value = []
-    junctionPoints.value = []
     clearSelection()
-  }
-
-  function addJunctionPoint(x, y, wireIds = []) {
-    const junction = {
-      id: `junction_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      x,
-      y,
-      connectedWires: wireIds,
-      value: 0
-    }
-    junctionPoints.value.push(junction)
-    return junction
-  }
-
-  function removeJunctionPoint(junction) {
-    const idx = junctionPoints.value.findIndex(j => j.id === junction.id)
-    if (idx > -1) {
-      junctionPoints.value.splice(idx, 1)
-    }
-  }
-
-  function findJunctionAt(x, y, tolerance = 10) {
-    return junctionPoints.value.find(j => {
-      const dist = Math.sqrt((x - j.x) ** 2 + (y - j.y) ** 2)
-      return dist < tolerance
-    })
   }
 
   return {
     components,
     wires,
-    junctionPoints,
     selection,
     viewport,
     addComponent,
     removeComponent,
     addWire,
     removeWire,
-    addJunctionPoint,
-    removeJunctionPoint,
-    findJunctionAt,
     clearSelection,
     deleteSelected,
     getComponentById,

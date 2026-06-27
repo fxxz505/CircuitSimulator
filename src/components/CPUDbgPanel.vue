@@ -85,9 +85,9 @@
         <div class="mem-view" ref="memoryViewRef">
           <div v-for="(row, idx) in memLines" :key="idx"
                class="ml"
-               :class="{ cur: row.addr === (cpuState.pc || 0), bp: breakpoints.has(row.addr) }">
-            <span class="ml-bp" @click="toggleBP(row.addr)">
-              {{ breakpoints.has(row.addr) ? '●' : '○' }}
+               :class="{ cur: row.addr === (cpuState.pc || 0), bp: breakpoints.includes(row.addr) }">
+              <span class="bp-dot" @click.stop="toggleBP(row.addr)">
+              {{ breakpoints.includes(row.addr) ? '●' : '○' }}
             </span>
             <span class="ml-a">0x{{ formatHex2(row.addr) }}</span>
             <template v-if="memViewMode === 'hex'">
@@ -124,7 +124,7 @@ const isDragging = ref(false)
 const dragStartPos = ref({ x: 0, y: 0 })
 const dragStartOffset = ref({ x: 0, y: 0 })
 const memViewMode = ref('asm')
-const breakpoints = ref(new Set())
+const breakpoints = ref([])
 
 const panelStyle = computed(() => ({
   left: `${dragPos.value.x}px`,
@@ -225,13 +225,14 @@ const memLines = computed(() => {
 })
 
 function toggleBP(addr) {
-  if (breakpoints.value.has(addr)) {
-    breakpoints.value.delete(addr)
+  const idx = breakpoints.value.indexOf(addr)
+  if (idx !== -1) {
+    breakpoints.value.splice(idx, 1)
   } else {
-    breakpoints.value.add(addr)
+    breakpoints.value.push(addr)
   }
-  breakpoints.value = new Set(breakpoints.value)
-  emit('toggle-breakpoint', addr, breakpoints.value.has(addr))
+  breakpoints.value = [...breakpoints.value]
+  emit('toggle-breakpoint', addr, breakpoints.value.includes(addr))
 }
 
 function getBreakpoints() { return breakpoints.value }

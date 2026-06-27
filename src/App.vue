@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<template>
   <div class="app">
     <Toolbar 
       :is-simulating="simulation.isSimulating.value"
@@ -21,6 +21,7 @@
       @show-truth-table="showTruthTable"
       @show-expression-to-circuit="showExpressionToCircuitPanel"
       @show-error-detection="showErrorDetection"
+      @toggle-command-console="showCommandConsole = !showCommandConsole"
     />
     
     <div class="main-container">
@@ -43,6 +44,8 @@
           @open-memory-editor="openMemoryEditor"
           @open-dotmatrix-editor="openDotMatrixEditor"
           @open-state-viewer="openStateViewer"
+          @open-io-config="openIoConfig"
+          @open-component-detail="showComponentDetails"
         />
         
         <!-- CPU调试器面板 -->
@@ -93,6 +96,7 @@
     <ClockSettingsDialog
       v-if="showClockSettings && clockComponentForSettings"
       :clock-component="clockComponentForSettings"
+      :clock-speed="simulation.clockSpeed.value"
       @close="showClockSettings = false"
       @update="updateClockSettings"
     />
@@ -144,8 +148,8 @@
         <div class="dialog-body">
           <div class="setting-group">
             <label>分频系数: {{ dividerComponentForSettings.divideBy }}</label>
-            <input type="range" v-model.number="dividerComponentForSettings.divideBy" min="2" max="256" step="1" />
-            <div class="range-labels"><span>2</span><span>256</span></div>
+            <input type="range" v-model.number="dividerComponentForSettings.divideBy" min="1" max="256" step="1" />
+            <div class="range-labels"><span>1</span><span>256</span></div>
           </div>
           <div class="setting-group">
             <label>快速选择:</label>
@@ -236,6 +240,13 @@
       :error-detector="errorDetector"
       @close="showErrorPanel = false"
     />
+
+    <!-- 命令控制台 -->
+    <CommandConsole
+      v-if="showCommandConsole"
+      :command-handler="handleCommand"
+      @close="showCommandConsole = false"
+    />
   </div>
 </template>
 
@@ -248,6 +259,7 @@ import { useTruthTable } from './composables/useTruthTable'
 import { useErrorDetection } from './composables/useErrorDetection'
 import { generateCircuitFromExpression as generateCircuitFromExpr } from './composables/useExpressionToCircuit'
 import { createCustomComponent } from './composables/useCustomComponents'
+import { calculateTextHeight } from './utils/textUtils'
 import Toolbar from './components/Toolbar.vue'
 import ComponentLibrary from './components/ComponentLibrary.vue'
 import Canvas from './components/Canvas.vue'
@@ -263,6 +275,7 @@ import DotMatrixEditor from './components/DotMatrixEditor.vue'
 import StateViewer from './components/StateViewer.vue'
 import ComponentDetailPanel from './components/ComponentDetailPanel.vue'
 import ErrorPanel from './components/ErrorPanel.vue'
+import CommandConsole from './components/CommandConsole.vue'
 
 const circuit = useCircuit()
 const simulation = useSimulation(circuit)
@@ -285,10 +298,12 @@ const showDividerSettings = ref(false)
 const showMemoryEditor = ref(false)
 const showDotMatrixEditor = ref(false)
 const showStateViewer = ref(false)
+const showIoConfig = ref(false)
 const showTruthTablePanel = ref(false)
 const showExpressionToCircuit = ref(false)
 const showComponentDetail = ref(false)
 const showErrorPanel = ref(false)
+const showCommandConsole = ref(false)
 const expressionInput = ref('')
 const selectedComponentForDetail = ref(null)
 
@@ -301,6 +316,7 @@ const romComponentForEditor = ref(null)
 const memoryComponentForEditor = ref(null)
 const dotMatrixComponentForEditor = ref(null)
 const stateViewerComponent = ref(null)
+const ioComponentForConfig = ref(null)
 const changedRegisters = ref([])
 
 // ROM数据用于调试器 - CPU关联的ROM
@@ -347,8 +363,14 @@ function onPackageCreate({ name, components, wires }) {
 }
 
 function saveState() {
+  // P2-11: 序列化时排除运行态字段 _internalState（自定义组件内部状态，需重新初始化）
+  const components = circuit.components.value.map(c => {
+    const clone = JSON.parse(JSON.stringify(c))
+    delete clone._internalState
+    return clone
+  })
   const state = {
-    components: JSON.parse(JSON.stringify(circuit.components.value)),
+    components: components,
     wires: JSON.parse(JSON.stringify(circuit.wires.value))
   }
   history.value = history.value.slice(0, historyIndex.value + 1)
@@ -414,8 +436,14 @@ function newCircuit() {
 }
 
 function saveCircuit() {
+  // P2-11: 序列化时排除运行态字段 _internalState
+  const components = circuit.components.value.map(c => {
+    const clone = JSON.parse(JSON.stringify(c))
+    delete clone._internalState
+    return clone
+  })
   const data = JSON.stringify({
-    components: circuit.components.value,
+    components: components,
     wires: circuit.wires.value
   })
   const blob = new Blob([data], { type: 'application/json' })
@@ -423,34 +451,6 @@ function saveCircuit() {
   a.href = URL.createObjectURL(blob)
   a.download = 'circuit.json'
   a.click()
-}
-
-function calculateTextHeight(text, maxWidth) {
-  const maxCharsPerLine = 30
-  const lineHeight = 24
-  const padding = 20
-  
-  if (!text) {
-    return padding + lineHeight
-  }
-  
-  let lines = 1
-  let currentLineLength = 0
-  
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    if (char === '\n') {
-      lines++
-      currentLineLength = 0
-    } else if (currentLineLength >= maxCharsPerLine) {
-      lines++
-      currentLineLength = 1
-    } else {
-      currentLineLength++
-    }
-  }
-  
-  return padding + lines * lineHeight
 }
 
 function loadCircuit() {
@@ -469,8 +469,10 @@ function loadCircuit() {
           circuit.reset()
           circuit.components.value = JSON.parse(JSON.stringify(data.components))
           circuit.wires.value = JSON.parse(JSON.stringify(data.wires))
-          
+
           circuit.components.value.forEach(comp => {
+            // P2-11: 加载时清除运行态字段，让自定义组件重新初始化内部状态
+            delete comp._internalState
             if (comp.type === 'TEXT') {
               comp.height = calculateTextHeight(comp.text, comp.width)
             }
@@ -585,12 +587,14 @@ function resetCPU() {
 function toggleCPUBreakpoint(addr, enabled) {
   if (!cpuComponent.value) return
   if (!cpuComponent.value.breakpoints) {
-    cpuComponent.value.breakpoints = new Set()
+    cpuComponent.value.breakpoints = []
   }
-  if (enabled) {
-    cpuComponent.value.breakpoints.add(addr)
-  } else {
-    cpuComponent.value.breakpoints.delete(addr)
+  const bp = cpuComponent.value.breakpoints
+  const idx = bp.indexOf(addr)
+  if (enabled && idx === -1) {
+    bp.push(addr)
+  } else if (!enabled && idx !== -1) {
+    bp.splice(idx, 1)
   }
 }
 
@@ -656,6 +660,16 @@ function openStateViewer(comp) {
   showStateViewer.value = true
 }
 
+function openIoConfig(comp) {
+  ioComponentForConfig.value = comp
+  showIoConfig.value = true
+}
+
+function updateIoConfig() {
+  // 配置已通过 v-model 双向绑定到 component.portConfig，这里仅触发状态保存
+  saveState()
+}
+
 function loadToROM(machineCode, romComp) {
   if (romComp && romComp.state) {
     romComp.state.fill(0)
@@ -692,6 +706,161 @@ function showComponentDetails(comp) {
 
 function showErrorDetection() {
   showErrorPanel.value = true
+}
+
+// ==================== 命令控制台处理器 ====================
+function handleCommand(cmd) {
+  const parts = cmd.trim().split(/\s+/)
+  const op = parts[0].toLowerCase()
+
+  switch (op) {
+    case 'help':
+      return [
+        '可用命令:',
+        '  help              显示帮助',
+        '  list              列出所有元件',
+        '  types             列出所有元件类型',
+        '  get <id>          查看元件状态/输出',
+        '  set <id> <val>    设置开关/按键状态 (0/1)',
+        '  run               开始仿真',
+        '  pause             暂停仿真',
+        '  step              单步执行',
+        '  reset             复位仿真',
+        '  clock <hz>        设置时钟频率 (1-60)',
+        '  probe <id>        探测元件输出值',
+        '  wire <fid> <fp> <tid> <tp>  连线',
+        '  count             统计元件/连线数',
+        '  clear             清屏 (在控制台内输入)'
+      ].join('\n')
+
+    case 'list': {
+      const comps = circuit.components.value
+      if (comps.length === 0) return '电路中没有元件'
+      return comps.map((c, i) => {
+        const id = c.id ? c.id.substring(0, 8) : `#${i}`
+        const def = COMPONENT_TYPES[c.type]
+        const name = def ? def.name : c.type
+        return `${id}  ${c.type}  (${name})  @(${c.x},${c.y})`
+      }).join('\n')
+    }
+
+    case 'types': {
+      return Object.keys(COMPONENT_TYPES).join(', ')
+    }
+
+    case 'count': {
+      return `元件: ${circuit.components.value.length}  连线: ${circuit.wires.value.length}`
+    }
+
+    case 'get': {
+      if (!parts[1]) return '用法: get <id>'
+      const comp = findCompById(parts[1])
+      if (!comp) return `未找到元件: ${parts[1]}`
+      const def = COMPONENT_TYPES[comp.type] || {}
+      const ins = comp.inputs.map(i => i.value).join(',')
+      const outs = comp.outputs.map(o => o.value).join(',')
+      let info = `类型: ${comp.type} (${def.name || '?'})\n`
+      info += `位置: (${comp.x}, ${comp.y})\n`
+      info += `输入: [${ins}]\n`
+      info += `输出: [${outs}]`
+      if (comp.state !== undefined) {
+        const s = Array.isArray(comp.state) ? `[${comp.state.join(',')}]` : comp.state
+        info += `\n状态: ${s}`
+      }
+      return info
+    }
+
+    case 'set': {
+      if (!parts[1] || parts[2] === undefined) return '用法: set <id> <value>'
+      const comp = findCompById(parts[1])
+      if (!comp) return `未找到元件: ${parts[1]}`
+      const val = parseInt(parts[2])
+      const def = COMPONENT_TYPES[comp.type]
+      if (!def) return `未知类型: ${comp.type}`
+      if (def.isInput && comp.outputs[0] !== undefined) {
+        comp.state = val ? 1 : 0
+        comp.outputs[0].value = comp.state
+        simulation.simulate()
+        return `${comp.type} 已设置为 ${comp.state}`
+      }
+      if (comp.type === 'DIPSW4') {
+        const idx = parts[3] !== undefined ? parseInt(parts[3]) - 1 : -1
+        if (!Array.isArray(comp.state)) comp.state = [0, 0, 0, 0]
+        if (idx >= 0 && idx < 4) {
+          comp.state[idx] = val ? 1 : 0
+          if (comp.outputs[idx]) comp.outputs[idx].value = comp.state[idx]
+        } else {
+          for (let i = 0; i < 4; i++) {
+            comp.state[i] = (val >> i) & 1
+            if (comp.outputs[i]) comp.outputs[i].value = comp.state[i]
+          }
+        }
+        simulation.simulate()
+        return `DIPSW4 状态: [${comp.state.join(',')}]`
+      }
+      return `${comp.type} 不支持 set 操作`
+    }
+
+    case 'run':
+      simulation.startSimulation()
+      return '仿真已开始'
+    case 'pause':
+      simulation.stopSimulation()
+      return '仿真已暂停'
+    case 'step':
+      simulation.stepSimulation()
+      return '已执行单步'
+    case 'reset':
+      simulation.resetSimulation()
+      return '仿真已复位'
+
+    case 'clock': {
+      const hz = parseInt(parts[1])
+      if (isNaN(hz)) return '用法: clock <hz>'
+      simulation.setClockSpeed(hz)
+      return `时钟频率: ${simulation.clockSpeed.value} Hz`
+    }
+
+    case 'probe': {
+      if (!parts[1]) return '用法: probe <id>'
+      const comp = findCompById(parts[1])
+      if (!comp) return `未找到元件: ${parts[1]}`
+      const outs = comp.outputs.map((o, i) => `out[${i}]=${o.value}`)
+      return `${comp.type} 输出: ${outs.join('  ')}`
+    }
+
+    case 'wire': {
+      if (parts.length < 5) return '用法: wire <from-id> <from-port> <to-id> <to-port>'
+      const fromComp = findCompById(parts[1])
+      const toComp = findCompById(parts[3])
+      if (!fromComp) return `未找到源元件: ${parts[1]}`
+      if (!toComp) return `未找到目标元件: ${parts[3]}`
+      const fp = parseInt(parts[2])
+      const tp = parseInt(parts[4])
+      if (!fromComp.outputs[fp]) return `源端口 ${fp} 不存在`
+      if (!toComp.inputs[tp]) return `目标端口 ${tp} 不存在`
+      circuit.wires.value.push({
+        id: `wire_${Date.now()}`,
+        from: { componentId: fromComp.id, port: fp },
+        to: { componentId: toComp.id, port: tp },
+        value: 0
+      })
+      simulation.simulate()
+      return `已连接 ${parts[1]}:${fp} → ${parts[3]}:${tp}`
+    }
+
+    default:
+      return `未知命令: ${op}。输入 help 查看帮助。`
+  }
+}
+
+function findCompById(idStr) {
+  if (!idStr) return null
+  const lower = idStr.toLowerCase()
+  return circuit.components.value.find(c =>
+    (c.id && c.id.toLowerCase().startsWith(lower)) ||
+    c.id === idStr
+  ) || null
 }
 
 onMounted(() => {

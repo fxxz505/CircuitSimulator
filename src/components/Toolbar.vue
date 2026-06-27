@@ -89,6 +89,9 @@
       <button class="btn btn-icon" @click="$emit('toggle-cpu-debug')" title="CPU调试器">
         <span class="btn-emoji">🔧</span>
       </button>
+      <button class="btn btn-icon" @click="$emit('toggle-command-console')" title="命令控制台">
+        <span class="btn-emoji">⌨</span>
+      </button>
       <button class="btn btn-icon" @click="$emit('package-component')" :disabled="!hasSelection" title="打包为自定义组件">
         <span class="btn-emoji">📦</span>
       </button>
@@ -134,7 +137,8 @@ defineEmits([
   'toggle-cpu-debug',
   'show-truth-table',
   'show-expression-to-circuit',
-  'show-error-detection'
+  'show-error-detection',
+  'toggle-command-console'
 ])
 </script>
 
