@@ -226,6 +226,143 @@ src/
 | 双击元器件 | 打开配置 |
 | 右键元器件 | 上下文菜单 |
 
+## CPU 指令集
+
+内置 8 位 CPU，16 位指令编码，支持 32 条指令。
+
+### 指令格式
+
+| 类型 | 编码格式 | 说明 |
+|------|----------|------|
+| 寄存器-寄存器 | `[15:12]=op [11:8]=Ra [7:4]=Rb [3:0]=0` | 双寄存器操作 |
+| 立即数 | `[15:12]=op [11:8]=Ra [7:4]=0 [3:0]=imm4` | 4 位立即数 |
+| 访存 | `[15:12]=op [11:8]=Ra [7:0]=addr8` | 8 位地址（bit7=1 为 I/O） |
+| 跳转 | `[15:12]=op [11:8]=0 [7:0]=addr8` | 无条件跳转 |
+| 单寄存器 | `[15:12]=op [11:8]=Ra [7:0]=0` | 单寄存器操作 |
+| 无操作数 | `[15:12]=op [11:8]=0 [7:0]=0` | 无操作数 |
+
+### 基础指令（0x0–0xF）
+
+| 指令 | 操作码 | 格式 | 说明 |
+|------|--------|------|------|
+| LOAD | 0x0 | `LOAD Ra, [addr]` | 从内存/IO 加载到寄存器 |
+| STORE | 0x1 | `STORE Ra, [addr]` | 寄存器存入内存/IO |
+| ADD | 0x2 | `ADD Ra, Rb` | Ra = Ra + Rb |
+| SUB | 0x3 | `SUB Ra, Rb` | Ra = Ra - Rb |
+| AND | 0x4 | `AND Ra, Rb` | Ra = Ra AND Rb |
+| OR | 0x5 | `OR Ra, Rb` | Ra = Ra OR Rb |
+| NOT | 0x6 | `NOT Ra` | Ra = NOT Ra |
+| JMP | 0x7 | `JMP addr` | 无条件跳转 |
+| JZ | 0x8 | `JZ Ra, addr` | Ra=0 跳转 |
+| JNZ | 0x9 | `JNZ Ra, addr` | Ra≠0 跳转 |
+| MOV | 0xA | `MOV Ra, Rb` | Ra = Rb |
+| LDI | 0xB | `LDI Ra, imm` | 加载 4 位立即数 |
+| SHL | 0xC | `SHL Ra` | 左移 |
+| SHR | 0xD | `SHR Ra` | 右移 |
+| CMP | 0xE | `CMP Ra, Rb` | 比较（影响标志位） |
+| HALT | 0xF | `HALT` | 停机 |
+
+### 扩展指令（0x10–0x1F）
+
+| 指令 | 操作码 | 格式 | 说明 |
+|------|--------|------|------|
+| CALL | 0x10 | `CALL addr` | 函数调用（保存 PC 到栈） |
+| RET | 0x11 | `RET` | 函数返回 |
+| PUSH | 0x12 | `PUSH Ra` | 压栈 |
+| POP | 0x13 | `POP Ra` | 出栈 |
+| INT | 0x14 | `INT imm` | 软中断 |
+| IRET | 0x15 | `IRET` | 中断返回 |
+| INC | 0x16 | `INC Ra` | Ra = Ra + 1 |
+| DEC | 0x17 | `DEC Ra` | Ra = Ra - 1 |
+| ADDI | 0x18 | `ADDI Ra, imm` | Ra = Ra + imm |
+| SUBI | 0x19 | `SUBI Ra, imm` | Ra = Ra - imm |
+| JC | 0x1A | `JC addr` | 进位标志=1 跳转 |
+| JNC | 0x1B | `JNC addr` | 进位标志=0 跳转 |
+| LDI8 | 0x1C | `LDI8 Ra, imm8` | 加载 8 位立即数 |
+| CMPI | 0x1D | `CMPI Ra, imm8` | 与立即数比较 |
+| EI | 0x1E | `EI` | 开中断 |
+| DI | 0x1F | `DI` | 关中断 |
+
+### 寄存器
+
+| 寄存器 | 说明 |
+|--------|------|
+| R0–R7 | 8 个通用寄存器（8 位） |
+| PC | 程序计数器（8 位） |
+| SP | 栈指针（8 位） |
+| FLAGS | 标志寄存器（零标志 Z、进位标志 C） |
+
+### 汇编示例
+
+#### 1 到 10 求和
+
+```asm
+LDI R0, 0        ; 累加器清零
+LDI R1, 1        ; 计数器 = 1
+LDI R2, 10       ; 上限 = 10
+
+loop:
+  ADD R0, R1     ; 累加
+  INC R1         ; 计数器 +1
+  CMP R1, R2     ; 比较
+  JNZ loop       ; 未到 10 继续
+
+STORE R0, [0x10] ; 结果存入内存
+HALT             ; 停机
+```
+
+#### 函数调用示例
+
+```asm
+LDI R0, 5
+CALL square      ; 调用求平方函数
+STORE R0, [0x20]
+HALT
+
+square:
+  MOV R1, R0     ; R1 = R0
+  MUL R0, R1     ; R0 = R0 * R1（若支持）
+  RET            ; 返回
+```
+
+## 示例电路搭建
+
+### 半加器
+
+使用 XOR 和 AND 门实现 1 位加法：
+
+1. 放置 2 个 SWITCH（A、B 输入）
+2. 放置 1 个 XOR 门，输入接 A、B，输出接 LED（Sum）
+3. 放置 1 个 AND 门，输入接 A、B，输出接 LED（Carry）
+4. 开始仿真，拨动开关验证真值表
+
+### 全加器
+
+使用 2 个 XOR、2 个 AND、1 个 OR 实现带进位的 1 位加法：
+
+1. 放置 3 个 SWITCH（A、B、Cin）
+2. XOR1：输入 A、B → 输出接 XOR2 第一输入
+3. XOR2：输入 XOR1 输出、Cin → 输出接 LED（Sum）
+4. AND1：输入 XOR1 输出、Cin
+5. AND2：输入 A、B
+6. OR：输入 AND1、AND2 输出 → 接 LED（Cout）
+
+### SR 锁存器
+
+使用 2 个 NOR 门实现 1 位存储：
+
+1. 放置 2 个 SWITCH（S 置位、R 复位）
+2. NOR1：输入 S、NOR2 输出 → 输出 Q
+3. NOR2：输入 R、NOR1 输出 → 输出 Q̄
+4. 放置 2 个 LED 显示 Q 和 Q̄
+
+### 4 位递增计数器
+
+1. 放置 1 个 CLOCK（设置频率 2Hz）
+2. 放置 1 个 COUNTER4，CLK 接 CLOCK，UP/DN 接 GND（递增），RST 接 GND
+3. 4 个输出 Q0–Q3 各接 1 个 LED
+4. 开始仿真，观察 LED 按二进制递增
+
 ## License
 
 MIT

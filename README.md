@@ -4,6 +4,8 @@
 
 一个类似《Turing Complete》与《Logisim》的网页版数字电路仿真器，纯前端实现，无需后端服务，开箱即用。
 
+🌐 **在线演示**: https://fxxz505.github.io/CircuitSimulator/
+
 ## 功能特性
 
 ### 电路设计与仿真
@@ -156,6 +158,146 @@ src/
 
 ### 元器件扩展
 通过自定义组件功能，可将任意子电路封装为可复用的黑盒元件，自动生成引脚并出现在元器件库的"自定义"分类中，支持导出为 JSON 与他人分享。
+
+## 示例电路
+
+### 半加器（Half Adder）
+计算两个 1 位二进制数的和与进位。
+
+```
+A ──┬──→ XOR ──→ S  （和）
+    │
+    └──→ AND ──→ C  （进位）
+B ──┘
+```
+
+**所需元器件**：XOR × 1、AND × 1、SWITCH × 2、LED × 2
+
+### 全加器（Full Adder）
+计算三个 1 位二进制数（含进位输入）的和与进位。
+
+```
+         ┌──→ XOR ──┐
+A ──┬────┘          ├──→ XOR ──→ S  （和）
+    │               │
+B ──┼──→ XOR ───────┘
+    │
+    └──→ AND ──┐
+              ├──→ OR ──→ Cout （进位）
+Cin ──→ AND ──┘
+```
+
+**所需元器件**：XOR × 2、AND × 2、OR × 1、SWITCH × 3、LED × 2
+
+### SR 锁存器
+最基础的 1 位存储元件，使用两个 NOR 门交叉连接。
+
+```
+S ──→ NOR ──→ Q
+       ↑│
+       └┘  （交叉反馈）
+       ┌│
+       ↓└
+R ──→ NOR ──→ Q̄
+```
+
+**所需元器件**：NOR × 2、SWITCH × 2、LED × 2
+
+### 4 位计数器
+使用 COUNTER4 元器件，时钟驱动递增计数，4 个 LED 显示计数值。
+
+**所需元器件**：CLOCK × 1、COUNTER4 × 1、LED × 4
+
+## CPU 指令集
+
+内置 8 位 CPU 支持 32 条指令，16 位指令编码。
+
+### 基础指令（opcode 0x0–0xF）
+
+| 指令 | 格式 | 说明 |
+|------|------|------|
+| `LOAD` | `LOAD Ra, [addr]` | 从内存加载到寄存器 |
+| `STORE` | `STORE Ra, [addr]` | 寄存器值存入内存 |
+| `ADD` | `ADD Ra, Rb` | Ra = Ra + Rb |
+| `SUB` | `SUB Ra, Rb` | Ra = Ra - Rb |
+| `AND` | `AND Ra, Rb` | Ra = Ra AND Rb |
+| `OR` | `OR Ra, Rb` | Ra = Ra OR Rb |
+| `NOT` | `NOT Ra` | Ra = NOT Ra |
+| `JMP` | `JMP addr` | 无条件跳转 |
+| `JZ` | `JZ Ra, addr` | Ra=0 时跳转 |
+| `JNZ` | `JNZ Ra, addr` | Ra≠0 时跳转 |
+| `MOV` | `MOV Ra, Rb` | Ra = Rb |
+| `LDI` | `LDI Ra, imm` | 加载 4 位立即数 |
+| `SHL` | `SHL Ra` | 左移 |
+| `SHR` | `SHR Ra` | 右移 |
+| `CMP` | `CMP Ra, Rb` | 比较（影响标志位） |
+| `HALT` | `HALT` | 停机 |
+
+### 扩展指令（opcode 0x10–0x1F）
+
+| 指令 | 格式 | 说明 |
+|------|------|------|
+| `CALL` | `CALL addr` | 函数调用 |
+| `RET` | `RET` | 函数返回 |
+| `PUSH` | `PUSH Ra` | 压栈 |
+| `POP` | `POP Ra` | 出栈 |
+| `INC` | `INC Ra` | 自增 |
+| `DEC` | `DEC Ra` | 自减 |
+| `ADDI` | `ADDI Ra, imm` | 加立即数 |
+| `SUBI` | `SUBI Ra, imm` | 减立即数 |
+| `JC` | `JC addr` | 进位跳转 |
+| `JNC` | `JNC addr` | 无进位跳转 |
+| `LDI8` | `LDI8 Ra, imm8` | 加载 8 位立即数 |
+| `CMPI` | `CMPI Ra, imm8` | 与立即数比较 |
+| `EI` | `EI` | 开中断 |
+| `DI` | `DI` | 关中断 |
+| `INT` | `INT imm` | 软中断 |
+| `IRET` | `IRET` | 中断返回 |
+
+### 汇编示例：1 到 10 求和
+
+```asm
+LDI R0, 0       ; 累加器清零
+LDI R1, 1       ; 计数器 = 1
+LDI R2, 10      ; 上限 = 10
+
+loop:
+ADD R0, R1      ; 累加
+INC R1          ; 计数器 +1
+CMP R1, R2      ; 比较
+JNZ loop        ; 未到 10 继续
+STORE R0, [0x10]; 结果存入内存
+HALT            ; 停机
+```
+
+## 快速上手
+
+1. **启动** — `npm run dev` 打开浏览器访问显示的地址
+2. **放置元器件** — 从左侧元器件库拖拽元器件到画布
+3. **连线** — 点击元器件端口开始连线，单击空白添加拐点，点击另一端口完成
+4. **配置** — 双击 CLOCK 可设置频率，双击 CPU 可打开调试器
+5. **仿真** — 点击工具栏 ▶ 开始仿真，观察 LED/数码管等输出
+6. **保存** — 点击 💾 导出电路 JSON 文件，📂 可导入已保存的电路
+
+## 部署到 GitHub Pages
+
+项目已配置 GitHub Actions 自动部署，推送 `main` 分支即自动构建发布。
+
+### 自动部署（已配置）
+
+1. 推送代码到 `main` 分支
+2. GitHub Actions 自动触发构建（见 `.github/workflows/deploy.yml`）
+3. 进入仓库 **Settings → Pages → Source**，选择 **GitHub Actions**
+4. 等待 Action 完成后访问 `https://<用户名>.github.io/<仓库名>/`
+
+### 手动部署（备用）
+
+```bash
+npm run build                          # 构建到 dist/
+npx gh-pages -d dist                    # 推送 dist/ 到 gh-pages 分支
+```
+
+> **注意**：`vite.config.js` 中 `base` 需设置为 `'/<仓库名>/'`，否则资源路径会 404。
 
 ## License
 
